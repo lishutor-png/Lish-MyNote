@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">Lish MyNote</string>
+    <string name="search_notes_placeholder">Cari catatan atau memo...</string>
+    <string name="all_categories">Semua</string>
+    <string name="new_note">Tambah Catatan</string>
+    <string name="edit_note">Edit Catatan</string>
+    <string name="note_content_placeholder">Tulis catatan di sini...</string>
+    <string name="category_label">Kategori</string>
+    <string name="save_note">Simpan</string>
+    <string name="cancel">Batal</string>
+    <string name="delete">Hapus</string>
+    <string name="security_verification_title">Verifikasi Keamanan</string>
+    <string name="security_verification_desc">Gunakan sidik jari atau kunci perangkat untuk melanjutkan</string>
+</resources>

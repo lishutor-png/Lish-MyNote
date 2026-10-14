@@ -1,0 +1,6 @@
+{
+  "name": "Lish MyNote",
+  "description": "Aplikasi memo dan catatan modern dengan pencatatan otomatis tanggal dan jam, kategori kustom, serta fitur pencadangan dan pemulihan data.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
