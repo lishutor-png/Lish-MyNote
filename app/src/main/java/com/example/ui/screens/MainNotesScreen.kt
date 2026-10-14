@@ -24,12 +24,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.ImportExport
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.NoteAlt
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
@@ -65,6 +71,7 @@ import com.example.R
 import com.example.data.model.CategoryEntity
 import com.example.data.model.NoteEntity
 import com.example.ui.components.NoteItemCard
+import com.example.ui.viewmodel.ThemeMode
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,6 +82,8 @@ fun MainNotesScreen(
     categoryCounts: Map<String, Int>,
     selectedCategory: String?,
     searchQuery: String,
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
+    onSelectThemeMode: (ThemeMode) -> Unit = {},
     onCategorySelected: (String?) -> Unit,
     onSearchQueryChanged: (String) -> Unit,
     onTripleLogoClick: () -> Unit,
@@ -87,6 +96,7 @@ fun MainNotesScreen(
     onNavigateExportImport: () -> Unit
 ) {
     var isSearchExpanded by remember { mutableStateOf(false) }
+    var showThemeMenu by remember { mutableStateOf(false) }
 
     // Triple-click detector on logo to open secret vault without any hints or clues
     var tapCount by remember { mutableIntStateOf(0) }
@@ -166,6 +176,68 @@ fun MainNotesScreen(
                                 imageVector = if (isSearchExpanded) Icons.Default.Clear else Icons.Default.Search,
                                 contentDescription = "Cari Catatan"
                             )
+                        }
+
+                        // Theme Mode Selector (Dark, Light, System)
+                        Box {
+                            IconButton(
+                                onClick = { showThemeMenu = true },
+                                modifier = Modifier.testTag("theme_toggle_button")
+                            ) {
+                                Icon(
+                                    imageVector = when (themeMode) {
+                                        ThemeMode.LIGHT -> Icons.Default.LightMode
+                                        ThemeMode.DARK -> Icons.Default.DarkMode
+                                        ThemeMode.SYSTEM -> Icons.Default.BrightnessAuto
+                                    },
+                                    contentDescription = "Pilih Tema Tampilan (Terang / Gelap)"
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = showThemeMenu,
+                                onDismissRequest = { showThemeMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Tema Terang") },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.LightMode, contentDescription = null)
+                                    },
+                                    trailingIcon = if (themeMode == ThemeMode.LIGHT) {
+                                        { Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                                    } else null,
+                                    onClick = {
+                                        onSelectThemeMode(ThemeMode.LIGHT)
+                                        showThemeMenu = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Tema Gelap") },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.DarkMode, contentDescription = null)
+                                    },
+                                    trailingIcon = if (themeMode == ThemeMode.DARK) {
+                                        { Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                                    } else null,
+                                    onClick = {
+                                        onSelectThemeMode(ThemeMode.DARK)
+                                        showThemeMenu = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Ikuti Sistem") },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.BrightnessAuto, contentDescription = null)
+                                    },
+                                    trailingIcon = if (themeMode == ThemeMode.SYSTEM) {
+                                        { Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                                    } else null,
+                                    onClick = {
+                                        onSelectThemeMode(ThemeMode.SYSTEM)
+                                        showThemeMenu = false
+                                    }
+                                )
+                            }
                         }
 
                         // Export / Import

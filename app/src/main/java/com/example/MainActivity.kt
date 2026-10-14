@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -27,6 +28,7 @@ import com.example.ui.screens.MainNotesScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.AppScreen
 import com.example.ui.viewmodel.NoteViewModel
+import com.example.ui.viewmodel.ThemeMode
 import com.example.util.BiometricHelper
 
 class MainActivity : FragmentActivity() {
@@ -37,7 +39,14 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            MyApplicationTheme {
+            val themeMode by viewModel.themeMode.collectAsState()
+            val isDark = when (themeMode) {
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+            }
+
+            MyApplicationTheme(darkTheme = isDark) {
                 LishMyNoteApp(
                     activity = this,
                     viewModel = viewModel
@@ -60,6 +69,7 @@ fun LishMyNoteApp(
     val categoryCounts by viewModel.categoryCounts.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
+    val themeMode by viewModel.themeMode.collectAsState()
 
     val showAddEditDialog by viewModel.showAddEditDialog.collectAsState()
     val editingNote by viewModel.editingNote.collectAsState()
@@ -115,6 +125,8 @@ fun LishMyNoteApp(
                         categoryCounts = categoryCounts,
                         selectedCategory = selectedCategory,
                         searchQuery = searchQuery,
+                        themeMode = themeMode,
+                        onSelectThemeMode = { viewModel.setThemeMode(it) },
                         onCategorySelected = { viewModel.setSelectedCategory(it) },
                         onSearchQueryChanged = { viewModel.setSearchQuery(it) },
                         onTripleLogoClick = onTriggerSecretVault,
