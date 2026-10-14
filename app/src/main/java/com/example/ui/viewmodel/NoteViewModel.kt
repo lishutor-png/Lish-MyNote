@@ -281,15 +281,19 @@ class NoteViewModel(application: Application) : AndroidViewModel(application) {
         return repository.exportToJson()
     }
 
-    fun importBackup(jsonString: String, onComplete: (Boolean, String) -> Unit) {
+    fun importBackup(
+        rawContent: String,
+        password: String? = null,
+        onComplete: (Boolean, String) -> Unit = { _, _ -> }
+    ) {
         viewModelScope.launch {
-            val result = repository.importFromJson(jsonString)
-            result.onSuccess { (cats, notes) ->
-                val msg = "Berhasil memuat $notes catatan dan $cats kategori baru!"
+            val result = repository.importFromSmartText(rawContent, password)
+            result.onSuccess { (cats, notes, desc) ->
+                val msg = "Berhasil memulihkan $notes catatan ($desc)"
                 showMessage(msg)
                 onComplete(true, msg)
             }.onFailure { e ->
-                val msg = "Gagal memuat: ${e.localizedMessage ?: "Format tidak dikenali"}"
+                val msg = "Gagal memuat: ${e.localizedMessage ?: "Format tidak dapat dikenali"}"
                 showMessage(msg)
                 onComplete(false, msg)
             }

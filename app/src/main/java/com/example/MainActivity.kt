@@ -159,8 +159,8 @@ fun LishMyNoteApp(
                         totalCategoriesCount = categories.size,
                         onBack = { viewModel.navigateTo(AppScreen.MAIN) },
                         getExportData = { viewModel.getExportJson() },
-                        onImportData = { json ->
-                            viewModel.importBackup(json) { _, _ -> }
+                        onImportData = { content, password ->
+                            viewModel.importBackup(content, password)
                         }
                     )
                 }

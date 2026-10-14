@@ -109,4 +109,36 @@ class NoteRepository(
             Pair(catCount, noteCount)
         }
     }
+
+    suspend fun importFromSmartText(
+        rawInput: String,
+        userPassword: String? = null
+    ): Result<Triple<Int, Int, String>> {
+        return runCatching {
+            val decoded = com.example.util.SmartTextDecoder.decodeAndParse(rawInput, userPassword)
+            if (!decoded.success || decoded.notes.isEmpty()) {
+                throw IllegalArgumentException(decoded.description.ifBlank { "Format file tidak dapat diproses" })
+            }
+
+            var catCount = 0
+            var noteCount = 0
+
+            // Import categories first
+            for (cat in decoded.categories) {
+                val existing = categoryDao.getCategoryByName(cat.name)
+                if (existing == null) {
+                    categoryDao.insertCategory(cat.copy(id = 0L))
+                    catCount++
+                }
+            }
+
+            // Import notes
+            for (note in decoded.notes) {
+                noteDao.insertNote(note.copy(id = 0L))
+                noteCount++
+            }
+
+            Triple(catCount, noteCount, decoded.description)
+        }
+    }
 }
