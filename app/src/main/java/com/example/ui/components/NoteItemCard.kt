@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -79,17 +80,26 @@ fun NoteItemCard(
     }
 
     val wordCount = remember(note.content) {
-        note.content.trim().split("\\s+".toRegex()).filter { it.isNotBlank() }.size
+        note.content.trim().split("\\s+".toRegex()).count { it.isNotBlank() }
     }
 
-    val (firstLine, remainingLines) = remember(note.content) {
-        val lines = note.content.trim().lines().filter { it.isNotBlank() }
-        if (lines.isNotEmpty()) {
-            val titleCandidate = lines[0].trim().removePrefix("## ").removePrefix("# ")
-            val bodyCandidate = if (lines.size > 1) lines.drop(1).joinToString(" ") else ""
-            Pair(titleCandidate, bodyCandidate)
+    val displayTitle = remember(note.title, note.content) {
+        if (note.title.isNotBlank()) {
+            note.title
         } else {
-            Pair("", "")
+            val lines = note.content.trim().lines().filter { it.isNotBlank() }
+            if (lines.isNotEmpty()) {
+                lines[0].trim().removePrefix("## ").removePrefix("# ")
+            } else ""
+        }
+    }
+
+    val displayBody = remember(note.title, note.content) {
+        if (note.title.isNotBlank()) {
+            note.content.trim()
+        } else {
+            val lines = note.content.trim().lines().filter { it.isNotBlank() }
+            if (lines.size > 1) lines.drop(1).joinToString(" ") else ""
         }
     }
 
@@ -138,7 +148,15 @@ fun NoteItemCard(
                         )
                     }
 
-                    if (wordCount > 100) {
+                    // AES-256 Lock Indicator
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "Terenkripsi AES-256",
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                        modifier = Modifier.size(13.dp)
+                    )
+
+                    if (wordCount > 60) {
                         Text(
                             text = "$wordCount kata",
                             style = MaterialTheme.typography.labelSmall,
@@ -215,8 +233,9 @@ fun NoteItemCard(
                                 },
                                 onClick = {
                                     showMenu = false
+                                    val full = if (note.title.isNotBlank()) "${note.title}\n\n${note.content}" else note.content
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    clipboard.setPrimaryClip(ClipData.newPlainText("Catatan Lish MyNote", note.content))
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("Catatan Lish MyNote", full))
                                 }
                             )
 
@@ -227,9 +246,10 @@ fun NoteItemCard(
                                 },
                                 onClick = {
                                     showMenu = false
+                                    val full = if (note.title.isNotBlank()) "${note.title}\n\n${note.content}" else note.content
                                     val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                         type = "text/plain"
-                                        putExtra(Intent.EXTRA_TEXT, note.content)
+                                        putExtra(Intent.EXTRA_TEXT, full)
                                     }
                                     context.startActivity(Intent.createChooser(shareIntent, "Bagikan Catatan"))
                                 }
@@ -253,9 +273,9 @@ fun NoteItemCard(
             Spacer(modifier = Modifier.height(8.dp))
 
             // Title / Headline
-            if (firstLine.isNotBlank()) {
+            if (displayTitle.isNotBlank()) {
                 Text(
-                    text = firstLine,
+                    text = displayTitle,
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
                         lineHeight = 22.sp
@@ -267,10 +287,10 @@ fun NoteItemCard(
             }
 
             // Body preview
-            if (remainingLines.isNotBlank()) {
+            if (displayBody.isNotBlank()) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = remainingLines,
+                    text = displayBody,
                     style = MaterialTheme.typography.bodyMedium.copy(
                         lineHeight = 21.sp
                     ),

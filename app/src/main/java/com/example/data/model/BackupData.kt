@@ -1,5 +1,6 @@
 package com.example.data.model
 
+import com.example.util.Aes256Crypt
 import com.example.util.DateUtils
 import org.json.JSONArray
 import org.json.JSONObject
@@ -32,6 +33,7 @@ data class BackupData(
         for (note in notes) {
             val noteObj = JSONObject()
             noteObj.put("id", note.id)
+            noteObj.put("title", note.title)
             noteObj.put("content", note.content)
             noteObj.put("category", note.category)
             noteObj.put("createdAt", note.createdAt)
@@ -171,8 +173,8 @@ data class BackupData(
             when (rawItem) {
                 is JSONObject -> {
                     // Extract title and body
-                    val title = rawItem.optString("title", rawItem.optString("judul", "")).trim()
-                    val body = rawItem.optString(
+                    var rawTitle = rawItem.optString("title", rawItem.optString("judul", "")).trim()
+                    var rawBody = rawItem.optString(
                         "content",
                         rawItem.optString(
                             "text",
@@ -192,14 +194,11 @@ data class BackupData(
                         )
                     ).trim()
 
-                    val finalContent = when {
-                        title.isNotBlank() && body.isNotBlank() -> {
-                            if (body.startsWith(title)) body else "$title\n\n$body"
-                        }
-                        title.isNotBlank() -> title
-                        body.isNotBlank() -> body
-                        else -> ""
-                    }
+                    // If encrypted with AES-256, decrypt in-memory
+                    rawTitle = Aes256Crypt.decrypt(rawTitle)
+                    rawBody = Aes256Crypt.decrypt(rawBody)
+
+                    val finalContent = rawBody.ifBlank { rawTitle }
 
                     if (finalContent.isBlank()) return
 
@@ -246,6 +245,7 @@ data class BackupData(
                     notesList.add(
                         NoteEntity(
                             id = 0L,
+                            title = rawTitle,
                             content = finalContent,
                             category = category,
                             createdAt = createdAt,
@@ -256,11 +256,15 @@ data class BackupData(
                     )
                 }
                 is String -> {
-                    val str = rawItem.trim()
+                    var str = rawItem.trim()
+                    str = Aes256Crypt.decrypt(str)
                     if (str.isNotBlank()) {
+                        val firstLine = str.lines().firstOrNull()?.trim() ?: ""
+                        val title = if (firstLine.length < 80 && str.lines().size > 1) firstLine else ""
                         notesList.add(
                             NoteEntity(
                                 id = 0L,
+                                title = title,
                                 content = str,
                                 category = "Umum",
                                 createdAt = System.currentTimeMillis(),

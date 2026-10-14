@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,18 +25,12 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FormatListNumbered
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -68,20 +61,21 @@ fun NoteDetailDialog(
     onDeleteClick: () -> Unit
 ) {
     val context = LocalContext.current
+
     val categoryColor = remember(categoryColorHex) {
         if (!categoryColorHex.isNullOrBlank()) {
             try {
                 Color(android.graphics.Color.parseColor(categoryColorHex))
             } catch (e: Exception) {
-                Color(0xFF1D4ED8)
+                Color(0xFF2563EB)
             }
         } else {
-            Color(0xFF1D4ED8)
+            Color(0xFF2563EB)
         }
     }
 
     val wordCount = remember(note.content) {
-        note.content.trim().split("\\s+".toRegex()).filter { it.isNotBlank() }.size
+        note.content.trim().split("\\s+".toRegex()).count { it.isNotBlank() }
     }
     val charCount = remember(note.content) { note.content.length }
     val readingTimeMinutes = remember(wordCount) {
@@ -89,13 +83,17 @@ fun NoteDetailDialog(
         minutes
     }
 
-    // Split title (if first line is title like "Bab 1: ...")
-    val (titlePart, bodyPart) = remember(note.content) {
-        val lines = note.content.lines()
-        if (lines.size > 1 && lines[0].isNotBlank() && lines[0].length < 120) {
-            Pair(lines[0].trim(), lines.drop(1).joinToString("\n").trim())
+    // Determine Title and Full Body
+    val (titlePart, bodyPart) = remember(note.title, note.content) {
+        if (note.title.isNotBlank()) {
+            Pair(note.title, note.content)
         } else {
-            Pair(null, note.content)
+            val lines = note.content.lines()
+            if (lines.size > 1 && lines[0].isNotBlank() && lines[0].length < 100) {
+                Pair(lines[0].trim(), lines.drop(1).joinToString("\n").trim())
+            } else {
+                Pair(null, note.content)
+            }
         }
     }
 
@@ -125,7 +123,8 @@ fun NoteDetailDialog(
                         IconButton(
                             onClick = {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("Catatan Lish MyNote", note.content))
+                                val fullText = if (titlePart != null) "$titlePart\n\n$bodyPart" else bodyPart
+                                clipboard.setPrimaryClip(ClipData.newPlainText("Catatan Lish MyNote", fullText))
                             },
                             modifier = Modifier.testTag("copy_note_detail")
                         ) {
@@ -135,7 +134,8 @@ fun NoteDetailDialog(
                             onClick = {
                                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                     type = "text/plain"
-                                    putExtra(Intent.EXTRA_TEXT, "${note.content}\n\n[Lish MyNote]")
+                                    val fullText = if (titlePart != null) "$titlePart\n\n$bodyPart" else bodyPart
+                                    putExtra(Intent.EXTRA_TEXT, "$fullText\n\n[Lish MyNote]")
                                 }
                                 context.startActivity(Intent.createChooser(shareIntent, "Bagikan Catatan"))
                             },
@@ -152,51 +152,20 @@ fun NoteDetailDialog(
                         ) {
                             Icon(Icons.Default.Edit, contentDescription = "Edit")
                         }
+                        IconButton(
+                            onClick = {
+                                onDismiss()
+                                onDeleteClick()
+                            },
+                            modifier = Modifier.testTag("delete_note_detail")
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = "Hapus", tint = MaterialTheme.colorScheme.error)
+                        }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.surface
                     )
                 )
-            },
-            bottomBar = {
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 3.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                onDismiss()
-                                onDeleteClick()
-                            },
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = MaterialTheme.colorScheme.error
-                            ),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Hapus")
-                        }
-                        Button(
-                            onClick = {
-                                onDismiss()
-                                onEditClick()
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Edit")
-                        }
-                    }
-                }
             }
         ) { innerPadding ->
             SelectionContainer {
@@ -208,7 +177,7 @@ fun NoteDetailDialog(
                         .verticalScroll(rememberScrollState())
                         .padding(horizontal = 20.dp, vertical = 16.dp)
                 ) {
-                    // Header metadata: category, timestamp, word count
+                    // Header metadata: category, timestamp, security
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -244,43 +213,65 @@ fun NoteDetailDialog(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                    // Stats badge: words & reading time
+                    // Encryption security & stats badge
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "$wordCount kata",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = "•",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = "$charCount karakter",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            if (wordCount > 150) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "$wordCount kata",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                                 Text(
                                     text = "•",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = "±$readingTimeMinutes mnt baca",
+                                    text = "$charCount karakter",
                                     style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (wordCount > 150) {
+                                    Text(
+                                        text = "•",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = "±$readingTimeMinutes mnt baca",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(
+                                    text = "Enkripsi AES-256 Lokal • Dekripsi In-Memory",
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.Medium
                                 )
                             }
                         }
@@ -299,7 +290,7 @@ fun NoteDetailDialog(
                         Spacer(modifier = Modifier.height(14.dp))
                     }
 
-                    // Content reading body with comfortable typography
+                    // Content reading body with comfortable typography (Entire content displayed)
                     Text(
                         text = bodyPart,
                         style = MaterialTheme.typography.bodyLarge.copy(

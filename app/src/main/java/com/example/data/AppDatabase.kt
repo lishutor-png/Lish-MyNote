@@ -4,18 +4,20 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.data.dao.CategoryDao
 import com.example.data.dao.NoteDao
 import com.example.data.model.CategoryEntity
 import com.example.data.model.NoteEntity
+import com.example.util.Aes256Crypt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 @Database(
     entities = [NoteEntity::class, CategoryEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -26,6 +28,12 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE notes ADD COLUMN title TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -33,6 +41,8 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "lish_mynote.db"
                 )
+                    .addMigrations(MIGRATION_1_2)
+                    .fallbackToDestructiveMigration()
                     .addCallback(DatabaseCallback())
                     .build()
                 INSTANCE = instance
@@ -63,10 +73,14 @@ abstract class AppDatabase : RoomDatabase() {
                 categoryDao.insertCategory(category)
             }
 
-            // Initial friendly note
+            // Initial friendly note with field-level AES-256 encryption
             val now = System.currentTimeMillis()
+            val welcomeTitle = "Selamat Datang di Lish MyNote"
+            val welcomeBody = "Setiap entri memo di sini mencatat tanggal dan jam secara otomatis.\n\nKeamanan Tingkat Tinggi (Advanced Local Encryption):\nJudul dan isi catatan Anda dienkripsi menggunakan standar kriptografi AES-256 sebelum disimpan di database lokal SQLite Room. Dekripsi hanya terjadi di memori (in-memory) saat aplikasi berjalan."
+            
             val welcomeNote = NoteEntity(
-                content = "Selamat datang di Lish MyNote!\n\nSetiap entri memo di sini mencatat tanggal dan jam secara otomatis. Anda dapat mengelompokkan catatan berdasarkan kategori kustom, mencari catatan dengan cepat, serta mencadangkan dan memulihkan data kapan saja.",
+                title = Aes256Crypt.encrypt(welcomeTitle),
+                content = Aes256Crypt.encrypt(welcomeBody),
                 category = "Umum",
                 createdAt = now,
                 updatedAt = now,

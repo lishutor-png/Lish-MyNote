@@ -1,6 +1,7 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AppDatabase
@@ -12,7 +13,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import android.content.Context
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -158,7 +158,7 @@ class NoteViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openAddNoteDialog(preselectedHidden: Boolean = false) {
         _editingNote.value = if (preselectedHidden) {
-            NoteEntity(content = "", category = "Pribadi", isHidden = true)
+            NoteEntity(title = "", content = "", category = "Pribadi", isHidden = true)
         } else {
             null
         }
@@ -175,8 +175,8 @@ class NoteViewModel(application: Application) : AndroidViewModel(application) {
         _editingNote.value = null
     }
 
-    fun saveNote(content: String, category: String, isHidden: Boolean) {
-        if (content.isBlank()) {
+    fun saveNote(title: String = "", content: String, category: String, isHidden: Boolean) {
+        if (content.isBlank() && title.isBlank()) {
             showMessage("Catatan tidak boleh kosong")
             return
         }
@@ -184,30 +184,27 @@ class NoteViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val existing = _editingNote.value
             if (existing != null && existing.id > 0) {
-                repository.updateNote(
-                    existing.copy(
-                        content = content.trim(),
-                        category = category.trim().ifBlank { "Umum" },
-                        isHidden = isHidden
-                    )
+                val updated = existing.copy(
+                    title = title.trim(),
+                    content = content.trim(),
+                    category = category.trim().ifBlank { "Umum" },
+                    isHidden = isHidden,
+                    updatedAt = System.currentTimeMillis()
                 )
-                // If currently viewing this note, update viewer too
+                repository.updateNote(updated)
+
                 if (_viewingNote.value?.id == existing.id) {
-                    _viewingNote.value = existing.copy(
-                        content = content.trim(),
-                        category = category.trim().ifBlank { "Umum" },
-                        isHidden = isHidden,
-                        updatedAt = System.currentTimeMillis()
-                    )
+                    _viewingNote.value = updated
                 }
-                showMessage("Catatan berhasil diperbarui")
+                showMessage("Catatan berhasil diperbarui (AES-256 tersimpan)")
             } else {
                 repository.insertNote(
+                    title = title.trim(),
                     content = content.trim(),
                     category = category.trim().ifBlank { "Umum" },
                     isHidden = isHidden
                 )
-                showMessage("Catatan baru tersimpan")
+                showMessage("Catatan baru tersimpan aman (Enkripsi AES-256)")
             }
             dismissAddEditDialog()
         }
@@ -281,6 +278,50 @@ class NoteViewModel(application: Application) : AndroidViewModel(application) {
         return repository.exportToJson()
     }
 
+    /**
+     * Imports the entire file as 1 single unbroken note.
+     * Guarantees 100% content preservation without any slicing.
+     */
+    fun importSingleNote(
+        title: String,
+        content: String,
+        category: String,
+        isHidden: Boolean = false,
+        onComplete: (Boolean, String) -> Unit = { _, _ -> }
+    ) {
+        if (content.isBlank() && title.isBlank()) {
+            val msg = "Isi catatan kosong"
+            showMessage(msg)
+            onComplete(false, msg)
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                // Ensure category exists
+                val catTrimmed = category.trim().ifBlank { "Umum" }
+                repository.insertCategory(catTrimmed, "#2563EB")
+
+                repository.insertNote(
+                    title = title.trim(),
+                    content = content.trim(),
+                    category = catTrimmed,
+                    isHidden = isHidden
+                )
+                val msg = "Berhasil mengimpor 1 catatan lengkap (${content.length} karakter tersimpan utuh)"
+                showMessage(msg)
+                onComplete(true, msg)
+            } catch (e: Exception) {
+                val msg = "Gagal menyimpan: ${e.localizedMessage ?: "Kesalahan penyimpanan"}"
+                showMessage(msg)
+                onComplete(false, msg)
+            }
+        }
+    }
+
+    /**
+     * Imports notes parsed via SmartTextDecoder.
+     */
     fun importBackup(
         rawContent: String,
         password: String? = null,

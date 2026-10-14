@@ -11,7 +11,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,17 +21,21 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
@@ -37,15 +43,19 @@ import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -54,6 +64,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -64,6 +75,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -71,6 +83,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.example.data.model.CategoryEntity
 import com.example.util.DecodedResult
 import com.example.util.SmartTextDecoder
 import kotlinx.coroutines.launch
@@ -80,9 +96,11 @@ import kotlinx.coroutines.launch
 fun ExportImportScreen(
     totalNotesCount: Int,
     totalCategoriesCount: Int,
+    categories: List<CategoryEntity> = emptyList(),
     onBack: () -> Unit,
     getExportData: suspend () -> String,
-    onImportData: (rawContent: String, password: String?) -> Unit
+    onImportData: (rawContent: String, password: String?) -> Unit,
+    onImportSingleNote: (title: String, content: String, category: String, isHidden: Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -91,12 +109,31 @@ fun ExportImportScreen(
     var passwordVisible by remember { mutableStateOf(false) }
     var loadedFileName by remember { mutableStateOf<String?>(null) }
 
+    // Custom import target settings (for single note import to guarantee no content is dropped)
+    var customTitle by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("Umum") }
+    var importAsSingleNote by remember { mutableStateOf(true) }
+    var showFullTextDialog by remember { mutableStateOf(false) }
+
     // Real-time decoding and format detection using SmartTextDecoder
     val decodedResult: DecodedResult? = remember(rawInputText, decryptionPassword) {
         if (rawInputText.isNotBlank()) {
             SmartTextDecoder.decodeAndParse(rawInputText, decryptionPassword.ifBlank { null })
         } else {
             null
+        }
+    }
+
+    // Auto-fill title from decoded result or filename if user hasn't typed a custom title
+    val effectiveTitle = remember(decodedResult, loadedFileName, customTitle) {
+        if (customTitle.isNotBlank()) {
+            customTitle
+        } else if (decodedResult != null && decodedResult.fullDocumentTitle.isNotBlank()) {
+            decodedResult.fullDocumentTitle
+        } else if (!loadedFileName.isNullOrBlank()) {
+            loadedFileName!!.substringBeforeLast(".")
+        } else {
+            "Catatan Baru"
         }
     }
 
@@ -115,14 +152,11 @@ fun ExportImportScreen(
                     context.contentResolver.openOutputStream(uri)?.use { outputStream ->
                         outputStream.write(jsonData.toByteArray(Charsets.UTF_8))
                     }
-                } catch (_: Exception) {
-                    // Handled
-                }
+                } catch (_: Exception) {}
             }
         }
     }
 
-    // Helper to query file name
     fun getFileName(uri: Uri): String {
         var name = "file.txt"
         try {
@@ -136,20 +170,20 @@ fun ExportImportScreen(
         return name
     }
 
-    // Import Document Launcher (SAF OpenDocument) - Supports .txt, .json, and all text files
+    // Import Document Launcher (SAF OpenDocument) - Supports .txt, .json, .sql, and all text files
     val openDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
             try {
-                loadedFileName = getFileName(uri)
+                val fName = getFileName(uri)
+                loadedFileName = fName
                 context.contentResolver.openInputStream(uri)?.use { inputStream ->
                     val content = inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
                     rawInputText = content
+                    customTitle = fName.substringBeforeLast(".")
                 }
-            } catch (_: Exception) {
-                // Handled
-            }
+            } catch (_: Exception) {}
         }
     }
 
@@ -187,10 +221,10 @@ fun ExportImportScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Status & Information Card
+            // Advanced Local Encryption Information Card
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
                 ),
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -200,7 +234,7 @@ fun ExportImportScreen(
                     verticalAlignment = Alignment.Top
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Info,
+                        imageVector = Icons.Default.Security,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(24.dp)
@@ -208,13 +242,13 @@ fun ExportImportScreen(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = "Cadangan & Pemulihan Fleksibel",
+                            text = "Advanced Local Encryption (AES-256)",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Mendukung impor file .txt, teks terenkripsi (otomatis dekripsi MD5/AES/Base64), dokumen bab/memo, serta format cadangan .json resmi.",
+                            text = "Judul dan isi catatan Anda dienkripsi menggunakan standar kriptografi tingkat field AES-256 sebelum disimpan di database lokal SQLite Room. Dekripsi hanya terjadi di memori (in-memory).",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -252,7 +286,7 @@ fun ExportImportScreen(
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "Unggah & Impor File (.txt / .json)",
+                            text = "Unggah & Impor File (.txt / .json / .sql)",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -261,7 +295,7 @@ fun ExportImportScreen(
                     Spacer(modifier = Modifier.height(6.dp))
 
                     Text(
-                        text = "Pilih file .txt (teks biasa / terenkripsi MD5/AES/Base64) atau file .json cadangan Anda.",
+                        text = "Pilih file .txt atau tempel teks dokumen Anda. Aplikasi menjamin seluruh isi catatan masuk secara utuh tanpa terpotong.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -298,7 +332,6 @@ fun ExportImportScreen(
                                 openDocumentLauncher.launch(
                                     arrayOf(
                                         "application/json",
-                                        "text/plain",
                                         "*/*"
                                     )
                                 )
@@ -309,94 +342,63 @@ fun ExportImportScreen(
                         ) {
                             Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Pilih File .json")
+                            Text("Pilih .json / .sql")
                         }
                     }
 
-                    // Display loaded file name if any
                     if (loadedFileName != null) {
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Description,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
+                                    tint = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.size(16.dp)
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "File dimuat: $loadedFileName",
+                                    text = "File terpilih: $loadedFileName (${rawInputText.length} karakter)",
                                     style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.weight(1f)
+                                    fontWeight = FontWeight.Medium
                                 )
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Isi Teks / Hasil Unggahan",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold
-                        )
-
-                        Text(
-                            text = "Tempel Clipboard",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier
-                                .clickable {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    val item = clipboard.primaryClip?.getItemAt(0)
-                                    val text = item?.text?.toString() ?: ""
-                                    if (text.isNotBlank()) {
-                                        rawInputText = text
-                                        loadedFileName = null
-                                    }
-                                }
-                                .padding(4.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
+                    // Text Field for manual text / ciphertext paste
                     OutlinedTextField(
                         value = rawInputText,
-                        onValueChange = { rawInputText = it },
-                        placeholder = {
-                            Text("Tempel teks atau pilih file .txt di atas (otomatis didekripsi jika dienkripsi)...")
+                        onValueChange = {
+                            rawInputText = it
+                            loadedFileName = null
                         },
+                        label = { Text("Atau Tempel Teks Catatan / Dokumen di Sini") },
+                        placeholder = { Text("Tempel teks .txt, enkripsi AES-256, Base64, atau JSON...") },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(120.dp)
-                            .testTag("import_text_field"),
+                            .heightIn(min = 100.dp, max = 200.dp)
+                            .testTag("import_raw_input_field"),
                         shape = RoundedCornerShape(10.dp)
                     )
 
-                    // Optional password input for encrypted files
                     Spacer(modifier = Modifier.height(10.dp))
+
+                    // Password input (if note was encrypted with a custom password)
                     OutlinedTextField(
                         value = decryptionPassword,
                         onValueChange = { decryptionPassword = it },
-                        label = { Text("Kunci / Password Dekripsi (Opsional)") },
-                        placeholder = { Text("Kosongkan untuk mencoba otomatis (MD5/AES default)") },
+                        label = { Text("Kata Sandi Dekripsi (Opsional)") },
+                        placeholder = { Text("Masukkan sandi jika file dilindungi password") },
                         leadingIcon = {
                             Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(18.dp))
                         },
@@ -419,7 +421,7 @@ fun ExportImportScreen(
 
                     // Detected Info & Decryption Status
                     if (decodedResult != null) {
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
                         val isSuccess = decodedResult.success && decodedResult.notes.isNotEmpty()
                         Surface(
                             shape = RoundedCornerShape(10.dp),
@@ -453,36 +455,129 @@ fun ExportImportScreen(
                                 if (decodedResult.detectedMethod.isNotBlank()) {
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = "Metode: ${decodedResult.detectedMethod}",
+                                        text = "Metode: ${decodedResult.detectedMethod} • ${decodedResult.totalCharacters} Karakter • ${decodedResult.totalWords} Kata",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
 
-                                if (decodedResult.rawTextPreview.isNotBlank()) {
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = "Pratinjau: \"${decodedResult.rawTextPreview}...\"",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 2
+                                // Button to view entire text
+                                Spacer(modifier = Modifier.height(6.dp))
+                                OutlinedButton(
+                                    onClick = { showFullTextDialog = true },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.MenuBook, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Periksa Seluruh Teks (${decodedResult.totalCharacters} Karakter)")
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Import Mode Selection: 1 Catatan Lengkap vs Multi Catatan
+                        Text(
+                            text = "Pilih Mode Impor:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilterChip(
+                                selected = importAsSingleNote,
+                                onClick = { importAsSingleNote = true },
+                                label = { Text("📄 1 Catatan Utuh (Lengkap)") },
+                                leadingIcon = if (importAsSingleNote) {
+                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                                } else null,
+                                modifier = Modifier.weight(1f)
+                            )
+
+                            if (decodedResult.notes.size > 1) {
+                                FilterChip(
+                                    selected = !importAsSingleNote,
+                                    onClick = { importAsSingleNote = false },
+                                    label = { Text("📚 Pisah (${decodedResult.notes.size} Catatan)") },
+                                    leadingIcon = if (!importAsSingleNote) {
+                                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                                    } else null,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+
+                        // Single note settings (Title & Category)
+                        if (importAsSingleNote) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            OutlinedTextField(
+                                value = customTitle,
+                                onValueChange = { customTitle = it },
+                                label = { Text("Judul Catatan") },
+                                placeholder = { Text(effectiveTitle) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Text(
+                                text = "Kategori:",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                val catOptions = if (categories.isNotEmpty()) categories.map { it.name } else listOf("Umum", "Pekerjaan", "Pribadi", "Ide", "Penting")
+                                for (catName in catOptions) {
+                                    val isSel = selectedCategory == catName
+                                    FilterChip(
+                                        selected = isSel,
+                                        onClick = { selectedCategory = catName },
+                                        label = { Text(catName) }
                                     )
                                 }
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     val canImport = decodedResult != null && decodedResult.success && decodedResult.notes.isNotEmpty()
 
+                    // Primary Import Action Button
                     Button(
                         onClick = {
-                            if (rawInputText.isNotBlank()) {
+                            if (decodedResult != null && importAsSingleNote) {
+                                // Import 100% of content as one complete note!
+                                val contentToSave = decodedResult.fullDocumentContent.ifBlank { rawInputText }
+                                val titleToSave = customTitle.ifBlank { effectiveTitle }
+                                onImportSingleNote(
+                                    titleToSave,
+                                    contentToSave,
+                                    selectedCategory,
+                                    false
+                                )
+                                rawInputText = ""
+                                decryptionPassword = ""
+                                loadedFileName = null
+                                customTitle = ""
+                            } else if (rawInputText.isNotBlank()) {
                                 onImportData(rawInputText, decryptionPassword.ifBlank { null })
                                 rawInputText = ""
                                 decryptionPassword = ""
                                 loadedFileName = null
+                                customTitle = ""
                             }
                         },
                         enabled = canImport || rawInputText.isNotBlank(),
@@ -493,10 +588,14 @@ fun ExportImportScreen(
                         Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            if (decodedResult != null && decodedResult.notes.isNotEmpty()) {
-                                "Impor Sekarang (${decodedResult.notes.size} Catatan)"
+                            if (decodedResult != null) {
+                                if (importAsSingleNote) {
+                                    "Simpan Sebagai 1 Catatan Lengkap (${decodedResult.totalCharacters} Karakter)"
+                                } else {
+                                    "Impor Semua (${decodedResult.notes.size} Catatan Terpisah)"
+                                }
                             } else {
-                                "Proses & Impor Catatan"
+                                "Proses & Simpan Catatan"
                             }
                         )
                     }
@@ -551,54 +650,76 @@ fun ExportImportScreen(
                             .fillMaxWidth()
                             .testTag("export_save_file_button")
                     ) {
-                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Simpan ke File JSON")
+                        Text("Simpan File Cadangan (.json)")
                     }
+                }
+            }
+        }
+    }
 
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    // Full Decoded Text Verification Dialog
+    if (showFullTextDialog && decodedResult != null) {
+        Dialog(
+            onDismissRequest = { showFullTextDialog = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = {
+                            Text(
+                                text = "Pratinjau Seluruh Isi Teks",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = { showFullTextDialog = false }) {
+                                Icon(Icons.Default.Close, contentDescription = "Tutup")
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("Teks Lengkap", decodedResult.fullDocumentContent))
+                            }) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Salin")
+                            }
+                        }
+                    )
+                }
+            ) { padding ->
+                SelectionContainer {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding)
+                            .padding(16.dp)
+                            .verticalScroll(rememberScrollState())
                     ) {
-                        OutlinedButton(
-                            onClick = {
-                                coroutineScope.launch {
-                                    val data = getExportData()
-                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "application/json"
-                                        putExtra(Intent.EXTRA_SUBJECT, "Lish MyNote Backup")
-                                        putExtra(Intent.EXTRA_TEXT, data)
-                                    }
-                                    context.startActivity(Intent.createChooser(shareIntent, "Bagikan Cadangan"))
-                                }
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("export_share_button")
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Bagikan")
+                            Text(
+                                text = "Total ${decodedResult.totalCharacters} karakter • ${decodedResult.totalWords} kata • ${decodedResult.notes.size} catatan terdeteksi",
+                                modifier = Modifier.padding(10.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
 
-                        OutlinedButton(
-                            onClick = {
-                                coroutineScope.launch {
-                                    val data = getExportData()
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    clipboard.setPrimaryClip(ClipData.newPlainText("Lish MyNote Backup", data))
-                                }
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("export_copy_button")
-                        ) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Salin Teks")
-                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text(
+                            text = decodedResult.fullDocumentContent,
+                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
                     }
                 }
             }

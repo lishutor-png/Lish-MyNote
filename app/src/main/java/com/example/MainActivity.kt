@@ -157,10 +157,14 @@ fun LishMyNoteApp(
                     ExportImportScreen(
                         totalNotesCount = allVisibleNotes.size + hiddenNotes.size,
                         totalCategoriesCount = categories.size,
+                        categories = categories,
                         onBack = { viewModel.navigateTo(AppScreen.MAIN) },
                         getExportData = { viewModel.getExportJson() },
                         onImportData = { content, password ->
                             viewModel.importBackup(content, password)
+                        },
+                        onImportSingleNote = { title, content, category, isHidden ->
+                            viewModel.importSingleNote(title, content, category, isHidden)
                         }
                     )
                 }
@@ -178,13 +182,13 @@ fun LishMyNoteApp(
                 )
             }
 
-            // Dialog: Add / Edit Note (Asking solely for content & category as requested)
+            // Dialog: Add / Edit Note
             if (showAddEditDialog) {
                 AddEditNoteDialog(
                     initialNote = editingNote,
                     categories = categories,
-                    onSave = { content, category, isHidden ->
-                        viewModel.saveNote(content, category, isHidden)
+                    onSave = { title, content, category, isHidden ->
+                        viewModel.saveNote(title, content, category, isHidden)
                     },
                     onDismiss = { viewModel.dismissAddEditDialog() },
                     onAddNewCategoryClick = { viewModel.openAddCategoryDialog() }

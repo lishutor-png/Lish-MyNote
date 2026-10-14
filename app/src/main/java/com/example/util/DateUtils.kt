@@ -70,6 +70,10 @@ object DateUtils {
         return fullDateFormat.format(Date(timestamp))
     }
 
+    fun formatDateShort(timestamp: Long): String {
+        return SimpleDateFormat("dd/MM/yyyy", Locale("id", "ID")).format(Date(timestamp))
+    }
+
     private fun isSameDay(cal1: Calendar, cal2: Calendar): Boolean {
         return cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR) &&
                 cal1.get(Calendar.DAY_OF_YEAR) == cal2.get(Calendar.DAY_OF_YEAR)

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -26,6 +27,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -47,10 +49,11 @@ import com.example.util.DateUtils
 fun AddEditNoteDialog(
     initialNote: NoteEntity?,
     categories: List<CategoryEntity>,
-    onSave: (content: String, category: String, isHidden: Boolean) -> Unit,
+    onSave: (title: String, content: String, category: String, isHidden: Boolean) -> Unit,
     onDismiss: () -> Unit,
     onAddNewCategoryClick: () -> Unit
 ) {
+    var title by remember { mutableStateOf(initialNote?.title ?: "") }
     var content by remember { mutableStateOf(initialNote?.content ?: "") }
     var selectedCategory by remember {
         mutableStateOf(
@@ -61,6 +64,10 @@ fun AddEditNoteDialog(
 
     val currentTimestamp = remember {
         initialNote?.createdAt ?: System.currentTimeMillis()
+    }
+
+    val wordCount = remember(content) {
+        content.trim().split("\\s+".toRegex()).count { it.isNotBlank() }
     }
 
     AlertDialog(
@@ -94,20 +101,78 @@ fun AddEditNoteDialog(
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
             ) {
-                // Section: Catatan
+                // Encryption info banner
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "Enkripsi AES-256 lokal aktif (Dekripsi hanya in-memory)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Section: Judul Catatan (Opsional)
                 Text(
-                    text = "Catatan",
+                    text = "Judul Catatan (Opsional)",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    placeholder = { Text("Contoh: Rencana Proyek, Bab 1, dll.") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("note_title_input"),
+                    shape = RoundedCornerShape(12.dp),
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Section: Isi Catatan
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Isi Catatan",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "${content.length} karakter • $wordCount kata",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(
                     value = content,
                     onValueChange = { content = it },
-                    placeholder = { Text("Tulis catatan atau memo Anda di sini...") },
+                    placeholder = { Text("Tulis atau tempel teks catatan lengkap Anda di sini...") },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 140.dp, max = 280.dp)
+                        .heightIn(min = 160.dp, max = 320.dp)
                         .testTag("note_content_input"),
                     shape = RoundedCornerShape(12.dp)
                 )
@@ -182,9 +247,9 @@ fun AddEditNoteDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    onSave(content, selectedCategory, isHidden)
+                    onSave(title, content, selectedCategory, isHidden)
                 },
-                enabled = content.isNotBlank(),
+                enabled = content.isNotBlank() || title.isNotBlank(),
                 modifier = Modifier.testTag("save_note_button")
             ) {
                 Text("Simpan")
