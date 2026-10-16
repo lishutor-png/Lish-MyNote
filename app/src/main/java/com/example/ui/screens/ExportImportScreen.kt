@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -63,6 +64,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -112,6 +114,7 @@ fun ExportImportScreen(
     // Custom import target settings (for single note import to guarantee no content is dropped)
     var customTitle by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("Umum") }
+    var saveToHiddenVault by remember { mutableStateOf(false) }
     var importAsSingleNote by remember { mutableStateOf(true) }
     var showFullTextDialog by remember { mutableStateOf(false) }
 
@@ -121,6 +124,21 @@ fun ExportImportScreen(
             SmartTextDecoder.decodeAndParse(rawInputText, decryptionPassword.ifBlank { null })
         } else {
             null
+        }
+    }
+
+    // Auto-detect secret note status and category from decoded payload
+    androidx.compose.runtime.LaunchedEffect(decodedResult) {
+        decodedResult?.let { res ->
+            if (res.notes.isNotEmpty()) {
+                val first = res.notes.first()
+                if (first.isHidden) {
+                    saveToHiddenVault = true
+                }
+                if (first.category.isNotBlank() && (selectedCategory == "Umum" || selectedCategory.isBlank())) {
+                    selectedCategory = first.category
+                }
+            }
         }
     }
 
@@ -511,20 +529,9 @@ fun ExportImportScreen(
                             }
                         }
 
-                        // Single note settings (Title & Category)
+                        // Single note settings (Category & Vault destination)
                         if (importAsSingleNote) {
                             Spacer(modifier = Modifier.height(10.dp))
-                            OutlinedTextField(
-                                value = customTitle,
-                                onValueChange = { customTitle = it },
-                                label = { Text("Judul Catatan") },
-                                placeholder = { Text(effectiveTitle) },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(10.dp)
-                            )
-
-                            Spacer(modifier = Modifier.height(8.dp))
 
                             Text(
                                 text = "Kategori:",
@@ -538,13 +545,63 @@ fun ExportImportScreen(
                                     .horizontalScroll(rememberScrollState()),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                val catOptions = if (categories.isNotEmpty()) categories.map { it.name } else listOf("Umum", "Pekerjaan", "Pribadi", "Ide", "Penting")
+                                val dynamicCats = (categories.map { it.name } + (decodedResult?.categories?.map { it.name } ?: emptyList())).distinct()
+                                val catOptions = if (dynamicCats.isNotEmpty()) dynamicCats else listOf("Umum", "Pekerjaan", "Pribadi", "Ide", "Penting")
                                 for (catName in catOptions) {
-                                    val isSel = selectedCategory == catName
+                                    val isSel = selectedCategory.equals(catName, ignoreCase = true)
                                     FilterChip(
                                         selected = isSel,
                                         onClick = { selectedCategory = catName },
                                         label = { Text(catName) }
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Secret / Hidden Note Toggle
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (saveToHiddenVault) {
+                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { saveToHiddenVault = !saveToHiddenVault }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (saveToHiddenVault) Icons.Default.Shield else Icons.Default.Visibility,
+                                            contentDescription = null,
+                                            tint = if (saveToHiddenVault) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column {
+                                            Text(
+                                                text = if (saveToHiddenVault) "Simpan ke Brankas Tersembunyi (Catatan Rahasia)" else "Simpan ke Daftar Utama",
+                                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                                            )
+                                            Text(
+                                                text = if (saveToHiddenVault) "Hanya tampil setelah verifikasi brankas" else "Tampil di halaman utama catatan",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                    Switch(
+                                        checked = saveToHiddenVault,
+                                        onCheckedChange = { saveToHiddenVault = it }
                                     )
                                 }
                             }
@@ -561,23 +618,24 @@ fun ExportImportScreen(
                             if (decodedResult != null && importAsSingleNote) {
                                 // Import 100% of content as one complete note!
                                 val contentToSave = decodedResult.fullDocumentContent.ifBlank { rawInputText }
-                                val titleToSave = customTitle.ifBlank { effectiveTitle }
                                 onImportSingleNote(
-                                    titleToSave,
+                                    "",
                                     contentToSave,
                                     selectedCategory,
-                                    false
+                                    saveToHiddenVault
                                 )
                                 rawInputText = ""
                                 decryptionPassword = ""
                                 loadedFileName = null
                                 customTitle = ""
+                                saveToHiddenVault = false
                             } else if (rawInputText.isNotBlank()) {
                                 onImportData(rawInputText, decryptionPassword.ifBlank { null })
                                 rawInputText = ""
                                 decryptionPassword = ""
                                 loadedFileName = null
                                 customTitle = ""
+                                saveToHiddenVault = false
                             }
                         },
                         enabled = canImport || rawInputText.isNotBlank(),

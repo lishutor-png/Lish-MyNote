@@ -17,7 +17,10 @@ interface NoteDao {
     @Query("SELECT * FROM notes WHERE isHidden = 1 ORDER BY createdAt DESC")
     fun getHiddenNotes(): Flow<List<NoteEntity>>
 
-    @Query("SELECT * FROM notes WHERE isHidden = 0 AND category = :category ORDER BY createdAt DESC")
+    @Query("SELECT * FROM notes ORDER BY createdAt DESC")
+    fun getAllNotesFlow(): Flow<List<NoteEntity>>
+
+    @Query("SELECT * FROM notes WHERE isHidden = 0 AND LOWER(TRIM(category)) = LOWER(TRIM(:category)) ORDER BY createdAt DESC")
     fun getVisibleNotesByCategory(category: String): Flow<List<NoteEntity>>
 
     @Query("SELECT * FROM notes WHERE isHidden = 0 AND content LIKE '%' || :query || '%' ORDER BY createdAt DESC")
@@ -43,6 +46,15 @@ interface NoteDao {
 
     @Query("UPDATE notes SET isHidden = :isHidden, updatedAt = :updatedAt WHERE id = :noteId")
     suspend fun setHiddenStatus(noteId: Long, isHidden: Boolean, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE notes SET category = :newCategory WHERE LOWER(TRIM(category)) = LOWER(TRIM(:oldCategory))")
+    suspend fun updateCategoryForNotes(oldCategory: String, newCategory: String)
+
+    @Query("UPDATE notes SET category = 'Umum' WHERE LOWER(TRIM(category)) = LOWER(TRIM(:category))")
+    suspend fun reassignNotesToDefaultCategory(category: String)
+
+    @Query("UPDATE notes SET category = :newCategory, updatedAt = :updatedAt WHERE id = :noteId")
+    suspend fun updateNoteCategory(noteId: Long, newCategory: String, updatedAt: Long = System.currentTimeMillis())
 
     @Query("DELETE FROM notes")
     suspend fun clearAllNotes()

@@ -32,8 +32,9 @@ import androidx.compose.material.icons.filled.ImportExport
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.NoteAlt
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.UnfoldLess
+import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -83,6 +84,8 @@ fun MainNotesScreen(
     selectedCategory: String?,
     searchQuery: String,
     themeMode: ThemeMode = ThemeMode.SYSTEM,
+    expandAll: Boolean = true,
+    onToggleExpandAll: () -> Unit = {},
     onSelectThemeMode: (ThemeMode) -> Unit = {},
     onCategorySelected: (String?) -> Unit,
     onSearchQueryChanged: (String) -> Unit,
@@ -92,7 +95,9 @@ fun MainNotesScreen(
     onEditNoteClick: (NoteEntity) -> Unit,
     onToggleHiddenClick: (NoteEntity) -> Unit,
     onDeleteNoteClick: (NoteEntity) -> Unit,
+    onMoveCategoryClick: (NoteEntity) -> Unit = {},
     onAddCategoryClick: () -> Unit,
+    onOpenManageCategories: () -> Unit = {},
     onNavigateExportImport: () -> Unit
 ) {
     var isSearchExpanded by remember { mutableStateOf(false) }
@@ -156,7 +161,7 @@ fun MainNotesScreen(
                                     )
                                 )
                                 Text(
-                                    text = "Catatan & Memo Otomatis",
+                                    text = "Catatan & Memo Terenkripsi",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -164,6 +169,17 @@ fun MainNotesScreen(
                         }
                     },
                     actions = {
+                        // Toggle Full View / Compact View ("Semua bisa ditampilkan")
+                        IconButton(
+                            onClick = onToggleExpandAll,
+                            modifier = Modifier.testTag("toggle_expand_all_button")
+                        ) {
+                            Icon(
+                                imageVector = if (expandAll) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
+                                contentDescription = if (expandAll) "Tampilan Ringkas" else "Tampilkan Semua Teks Catatan"
+                            )
+                        }
+
                         // Search Toggle
                         IconButton(
                             onClick = {
@@ -175,6 +191,17 @@ fun MainNotesScreen(
                             Icon(
                                 imageVector = if (isSearchExpanded) Icons.Default.Clear else Icons.Default.Search,
                                 contentDescription = "Cari Catatan"
+                            )
+                        }
+
+                        // Manage Categories
+                        IconButton(
+                            onClick = onOpenManageCategories,
+                            modifier = Modifier.testTag("manage_categories_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = "Kelola Kategori"
                             )
                         }
 
@@ -190,7 +217,7 @@ fun MainNotesScreen(
                                         ThemeMode.DARK -> Icons.Default.DarkMode
                                         ThemeMode.SYSTEM -> Icons.Default.BrightnessAuto
                                     },
-                                    contentDescription = "Pilih Tema Tampilan (Terang / Gelap)"
+                                    contentDescription = "Pilih Tema Tampilan"
                                 )
                             }
 
@@ -307,15 +334,16 @@ fun MainNotesScreen(
                         modifier = Modifier.testTag("category_filter_Semua")
                     )
 
-                    // User categories
+                    // User categories with accurate case-insensitive count
                     for (cat in categories) {
-                        val isSelected = selectedCategory == cat.name
+                        val isSelected = selectedCategory.equals(cat.name, ignoreCase = true)
                         val catColor = try {
                             Color(android.graphics.Color.parseColor(cat.colorHex))
                         } catch (e: Exception) {
                             MaterialTheme.colorScheme.primary
                         }
-                        val count = categoryCounts[cat.name] ?: 0
+                        // Robust case-insensitive and trimmed lookup
+                        val count = categoryCounts[cat.name.trim().lowercase()] ?: categoryCounts[cat.name] ?: 0
 
                         FilterChip(
                             selected = isSelected,
@@ -353,6 +381,35 @@ fun MainNotesScreen(
                                 text = "Kategori Baru",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    // "Kelola Kategori" Chip
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onOpenManageCategories() }
+                            .testTag("open_manage_categories_chip")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Kelola",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.secondary,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
@@ -411,7 +468,7 @@ fun MainNotesScreen(
 
                     Text(
                         text = if (searchQuery.isNotEmpty()) "Coba kata kunci pencarian yang lain."
-                        else "Tekan tombol + di bawah untuk membuat memo baru, atau muat cadangan dari menu cadangan.",
+                        else "Tekan tombol + di bawah untuk membuat memo baru, atau muat file cadangan.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -424,14 +481,16 @@ fun MainNotesScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(notes, key = { it.id }) { note ->
-                        val catColorHex = categories.find { it.name == note.category }?.colorHex
+                        val catColorHex = categories.find { it.name.equals(note.category, ignoreCase = true) }?.colorHex
                         NoteItemCard(
                             note = note,
                             categoryColorHex = catColorHex,
+                            expandAll = expandAll,
                             onNoteClick = { onViewNoteClick(note) },
                             onEditClick = { onEditNoteClick(note) },
                             onToggleHiddenClick = { onToggleHiddenClick(note) },
-                            onDeleteClick = { onDeleteNoteClick(note) }
+                            onDeleteClick = { onDeleteNoteClick(note) },
+                            onMoveCategoryClick = { onMoveCategoryClick(note) }
                         )
                     }
                 }

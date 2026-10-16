@@ -25,8 +25,8 @@ object Aes256Crypt {
     private const val CBC_IV_LENGTH = 16
 
     // Secure master key for local field-level database encryption
-    // Derived with SHA-256/PBKDF2 to guarantee 256-bit (32 bytes) key length
-    private val masterKey: SecretKey by lazy {
+    // Derived with SHA-256 to guarantee 256-bit (32 bytes) key length
+    val masterKey: SecretKey by lazy {
         generateMasterKey()
     }
 
@@ -72,54 +72,89 @@ object Aes256Crypt {
 
     /**
      * Decrypts an encrypted field string in-memory.
-     * If the string is already plain text (e.g. unencrypted notes), it returns it directly.
+     * Supports prefixed ciphertexts (ENC:AES256:GCM: or ENC:AES256:CBC:) as well as
+     * raw Base64 encoded ciphertexts.
+     * If the string is already plain text, it returns it directly.
      */
     fun decrypt(cipherText: String?): String {
         if (cipherText.isNullOrEmpty()) return ""
 
-        // Handle AES-256 GCM
-        if (cipherText.startsWith(PREFIX_GCM)) {
-            val encodedData = cipherText.removePrefix(PREFIX_GCM).trim()
-            try {
-                val data = Base64.decode(encodedData, Base64.NO_WRAP)
-                if (data.size > GCM_IV_LENGTH) {
-                    val iv = data.copyOfRange(0, GCM_IV_LENGTH)
-                    val cipherBytes = data.copyOfRange(GCM_IV_LENGTH, data.size)
+        val trimmed = cipherText.trim()
 
-                    val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-                    val spec = GCMParameterSpec(GCM_TAG_LENGTH, iv)
-                    cipher.init(Cipher.DECRYPT_MODE, masterKey, spec)
+        // 1. Handle explicit AES-256 GCM with prefix
+        if (trimmed.startsWith(PREFIX_GCM)) {
+            val encodedData = trimmed.removePrefix(PREFIX_GCM).trim()
+            tryDecryptGcmWithMasterKey(encodedData)?.let { return it }
+        }
 
-                    val decryptedBytes = cipher.doFinal(cipherBytes)
-                    return String(decryptedBytes, StandardCharsets.UTF_8)
-                }
-            } catch (_: Exception) {
-                // If corrupted or decoding fails, fallback to clean string
+        // 2. Handle explicit AES-256 CBC with prefix
+        if (trimmed.startsWith(PREFIX_CBC)) {
+            val encodedData = trimmed.removePrefix(PREFIX_CBC).trim()
+            tryDecryptCbcWithMasterKey(encodedData)?.let { return it }
+        }
+
+        // 3. Attempt in-memory decryption for raw Base64 AES-256 payloads
+        if (isBase64Candidate(trimmed)) {
+            // Try GCM with master key
+            tryDecryptGcmWithMasterKey(trimmed)?.let { return it }
+            // Try CBC with master key
+            tryDecryptCbcWithMasterKey(trimmed)?.let { return it }
+
+            // Try with common default app keys (e.g. "hati", "LishMyNote", "1234")
+            val candidateKeys = listOf("hati", "LishMyNote", "Lish MyNote", "admin", "1234", "password")
+            for (key in candidateKeys) {
+                decryptWithPassword(trimmed, key)?.let { return it }
             }
         }
 
-        // Handle AES-256 CBC
-        if (cipherText.startsWith(PREFIX_CBC)) {
-            val encodedData = cipherText.removePrefix(PREFIX_CBC).trim()
-            try {
-                val data = Base64.decode(encodedData, Base64.NO_WRAP)
-                if (data.size > CBC_IV_LENGTH) {
-                    val iv = data.copyOfRange(0, CBC_IV_LENGTH)
-                    val cipherBytes = data.copyOfRange(CBC_IV_LENGTH, data.size)
-
-                    val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-                    cipher.init(Cipher.DECRYPT_MODE, masterKey, IvParameterSpec(iv))
-
-                    val decryptedBytes = cipher.doFinal(cipherBytes)
-                    return String(decryptedBytes, StandardCharsets.UTF_8)
-                }
-            } catch (_: Exception) {
-                // Fallback
-            }
-        }
-
-        // Check if raw text is encrypted with another key or password
+        // Return original if plain text or key not yet provided
         return cipherText
+    }
+
+    private fun tryDecryptGcmWithMasterKey(encodedBase64: String): String? {
+        return try {
+            val data = Base64.decode(encodedBase64, Base64.NO_WRAP)
+            if (data.size > GCM_IV_LENGTH + 16) {
+                val iv = data.copyOfRange(0, GCM_IV_LENGTH)
+                val cipherBytes = data.copyOfRange(GCM_IV_LENGTH, data.size)
+
+                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                val spec = GCMParameterSpec(GCM_TAG_LENGTH, iv)
+                cipher.init(Cipher.DECRYPT_MODE, masterKey, spec)
+
+                val decryptedBytes = cipher.doFinal(cipherBytes)
+                val result = String(decryptedBytes, StandardCharsets.UTF_8)
+                if (result.isNotBlank()) result else null
+            } else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun tryDecryptCbcWithMasterKey(encodedBase64: String): String? {
+        return try {
+            val data = Base64.decode(encodedBase64, Base64.NO_WRAP)
+            if (data.size > CBC_IV_LENGTH + 8) {
+                val iv = data.copyOfRange(0, CBC_IV_LENGTH)
+                val cipherBytes = data.copyOfRange(CBC_IV_LENGTH, data.size)
+
+                val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+                cipher.init(Cipher.DECRYPT_MODE, masterKey, IvParameterSpec(iv))
+
+                val decryptedBytes = cipher.doFinal(cipherBytes)
+                val result = String(decryptedBytes, StandardCharsets.UTF_8)
+                if (result.isNotBlank()) result else null
+            } else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun isBase64Candidate(text: String): Boolean {
+        if (text.length < 24) return false
+        if (text.contains(" ") || text.contains("\n") || text.contains("\t")) return false
+        val base64Regex = Regex("^[A-Za-z0-9+/]+={0,2}$")
+        return base64Regex.matches(text)
     }
 
     /**
@@ -149,12 +184,13 @@ object Aes256Crypt {
         try {
             val keyBytes = MessageDigest.getInstance("SHA-256").digest(password.toByteArray(StandardCharsets.UTF_8))
             val key = SecretKeySpec(keyBytes, "AES")
-            if (decodedBytes.size > GCM_IV_LENGTH) {
+            if (decodedBytes.size > GCM_IV_LENGTH + 16) {
                 val iv = decodedBytes.copyOfRange(0, GCM_IV_LENGTH)
                 val cipherBytes = decodedBytes.copyOfRange(GCM_IV_LENGTH, decodedBytes.size)
                 val cipher = Cipher.getInstance("AES/GCM/NoPadding")
                 cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_LENGTH, iv))
-                return String(cipher.doFinal(cipherBytes), StandardCharsets.UTF_8)
+                val result = String(cipher.doFinal(cipherBytes), StandardCharsets.UTF_8)
+                if (result.isNotBlank()) return result
             }
         } catch (_: Exception) {}
 
@@ -167,11 +203,12 @@ object Aes256Crypt {
                 val cipherBytes = decodedBytes.copyOfRange(CBC_IV_LENGTH, decodedBytes.size)
                 val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
                 cipher.init(Cipher.DECRYPT_MODE, key, IvParameterSpec(iv))
-                return String(cipher.doFinal(cipherBytes), StandardCharsets.UTF_8)
+                val result = String(cipher.doFinal(cipherBytes), StandardCharsets.UTF_8)
+                if (result.isNotBlank()) return result
             }
         } catch (_: Exception) {}
 
-        // 3. Try AES-128/256 CBC with MD5(password)
+        // 3. Try AES-128 CBC with MD5(password)
         try {
             val md5Bytes = MessageDigest.getInstance("MD5").digest(password.toByteArray(StandardCharsets.UTF_8))
             val key = SecretKeySpec(md5Bytes, "AES")
@@ -180,7 +217,8 @@ object Aes256Crypt {
                 val cipherBytes = decodedBytes.copyOfRange(CBC_IV_LENGTH, decodedBytes.size)
                 val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
                 cipher.init(Cipher.DECRYPT_MODE, key, IvParameterSpec(iv))
-                return String(cipher.doFinal(cipherBytes), StandardCharsets.UTF_8)
+                val result = String(cipher.doFinal(cipherBytes), StandardCharsets.UTF_8)
+                if (result.isNotBlank()) return result
             }
         } catch (_: Exception) {}
 
@@ -192,6 +230,8 @@ object Aes256Crypt {
      */
     fun isEncrypted(value: String?): Boolean {
         if (value.isNullOrBlank()) return false
-        return value.startsWith(PREFIX_GCM) || value.startsWith(PREFIX_CBC)
+        val trimmed = value.trim()
+        if (trimmed.startsWith(PREFIX_GCM) || trimmed.startsWith(PREFIX_CBC)) return true
+        return isBase64Candidate(trimmed) && trimmed.length >= 32
     }
 }

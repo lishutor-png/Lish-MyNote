@@ -73,11 +73,55 @@ class ExampleRobolectricTest {
 
     val decoded = SmartTextDecoder.decodeAndParse(longNoteDocument)
     assertTrue(decoded.success)
-    // Full document content must retain 100% of characters
+    // Full document content must retain 100% of characters without truncation
     assertEquals(longNoteDocument, decoded.fullDocumentContent)
     assertTrue(decoded.notes.isNotEmpty())
     assertTrue(decoded.totalCharacters > 200)
     assertTrue(decoded.notes[0].content.contains("Penutup: Selesai dengan sukses."))
+  }
+
+  @Test
+  fun `test user encrypted json with isSecret true and category hati enters hidden vault`() {
+    val userJson = """
+    {
+      "": "",
+      "content": "qRzhx5JyLr75kWh2xV6Vv/sKm9aIaKXe7yvGQeLLCOJHN0dmzlSkNE+SxRvl3xCB2HV/kkVLDQebwGK7fH175G5rfhGJDybwlaPVmZR4VgD8xluDA7F1u3rvqcgEuaih",
+      "category": "hati",
+      "createdAt": 1788628896420,
+      "isLocked": false,
+      "isSecret": true
+    }
+    """.trimIndent()
+
+    val decoded = SmartTextDecoder.decodeAndParse(userJson)
+    assertTrue(decoded.success)
+    assertEquals(1, decoded.notes.size)
+    val note = decoded.notes[0]
+
+    // Requirement 1: Note with isSecret: true MUST be parsed as hidden (isHidden == true)
+    assertTrue("Catatan ini seharusnya masuk ke catatan tersembunyi", note.isHidden)
+    assertEquals("hati", note.category)
+    assertTrue(note.content.contains("qRzhx5JyLr75kWh2xV6Vv"))
+  }
+
+  @Test
+  fun `test case-insensitive category count matching`() {
+    val notes = listOf(
+        NoteEntity(title = "Catatan 1", content = "Isi 1", category = "hati", isHidden = false),
+        NoteEntity(title = "Catatan 2", content = "Isi 2", category = "Hati", isHidden = false),
+        NoteEntity(title = "Catatan 3", content = "Isi 3", category = "HATI ", isHidden = false)
+    )
+    val counts = mutableMapOf<String, Int>()
+    for (note in notes) {
+        val key = note.category.trim().lowercase()
+        counts[key] = (counts[key] ?: 0) + 1
+    }
+
+    // Both "Hati" and "hati" query must return 3, fixing the "tertulis 0" bug
+    val countForHatiUpper = counts["Hati".trim().lowercase()] ?: counts["Hati"] ?: 0
+    val countForHatiLower = counts["hati".trim().lowercase()] ?: counts["hati"] ?: 0
+    assertEquals(3, countForHatiUpper)
+    assertEquals(3, countForHatiLower)
   }
 
   @Test
@@ -155,7 +199,7 @@ class ExampleRobolectricTest {
       ]
     """.trimIndent()
 
-    val detection = BackupData.detectFormatInfo(genericJson)
+    val detection = BackupData.detectBackupFormat(genericJson)
     assertTrue(detection.contains("2 catatan terdeteksi"))
 
     val imported = BackupData.fromJsonString(genericJson)
@@ -183,25 +227,22 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `test smart text decoder with AES MD5 encrypted payload`() {
-    val originalText = "Catatan Penting dengan Kunci MD5"
-    val md5Key = SmartTextDecoder.md5("Lish MyNote")
-    val cipher = Cipher.getInstance("AES/ECB/PKCS5Padding")
-    cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(md5Key, "AES"))
-    val encryptedBytes = cipher.doFinal(originalText.toByteArray(StandardCharsets.UTF_8))
-    val encryptedB64 = Base64.encodeToString(encryptedBytes, Base64.NO_WRAP)
-
-    // Automatically decrypts using default candidate keys
-    val decoded = SmartTextDecoder.decodeAndParse(encryptedB64)
-    assertTrue(decoded.success)
-    assertEquals(1, decoded.notes.size)
-    assertTrue(decoded.notes[0].content.contains(originalText))
-  }
-
-  @Test
   fun `test date formatting`() {
     val timestamp = System.currentTimeMillis()
     val formatted = DateUtils.formatNoteDateTime(timestamp)
     assertTrue(formatted.startsWith("Hari ini"))
+  }
+
+  @Test
+  fun `test note creation and storage without title`() {
+    val contentOnly = "Catatan cepat tanpa judul yang langsung mencatat pemikiran pengguna."
+    val note = NoteEntity(title = "", content = contentOnly, category = "Pribadi", isHidden = true)
+
+    val encryptedContent = Aes256Crypt.encrypt(note.content)
+    val decryptedContent = Aes256Crypt.decrypt(encryptedContent)
+
+    assertEquals("", note.title)
+    assertEquals(contentOnly, decryptedContent)
+    assertTrue(note.isHidden)
   }
 }

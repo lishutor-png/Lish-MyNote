@@ -17,7 +17,7 @@ import kotlinx.coroutines.launch
 
 @Database(
     entities = [NoteEntity::class, CategoryEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -34,6 +34,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE categories ADD COLUMN displayOrder INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -41,7 +47,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "lish_mynote.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .fallbackToDestructiveMigration()
                     .addCallback(DatabaseCallback())
                     .build()
@@ -63,11 +69,11 @@ abstract class AppDatabase : RoomDatabase() {
 
         suspend fun populateInitialData(categoryDao: CategoryDao, noteDao: NoteDao) {
             val defaults = listOf(
-                CategoryEntity(name = "Umum", colorHex = "#2563EB", isDefault = true),
-                CategoryEntity(name = "Pekerjaan", colorHex = "#10B981", isDefault = true),
-                CategoryEntity(name = "Pribadi", colorHex = "#F59E0B", isDefault = true),
-                CategoryEntity(name = "Ide", colorHex = "#8B5CF6", isDefault = true),
-                CategoryEntity(name = "Penting", colorHex = "#EF4444", isDefault = true)
+                CategoryEntity(name = "Umum", colorHex = "#2563EB", isDefault = true, displayOrder = 0),
+                CategoryEntity(name = "Pekerjaan", colorHex = "#10B981", isDefault = true, displayOrder = 1),
+                CategoryEntity(name = "Pribadi", colorHex = "#F59E0B", isDefault = true, displayOrder = 2),
+                CategoryEntity(name = "Ide", colorHex = "#8B5CF6", isDefault = true, displayOrder = 3),
+                CategoryEntity(name = "Penting", colorHex = "#EF4444", isDefault = true, displayOrder = 4)
             )
             for (category in defaults) {
                 categoryDao.insertCategory(category)

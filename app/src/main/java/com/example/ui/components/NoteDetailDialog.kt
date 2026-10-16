@@ -83,18 +83,9 @@ fun NoteDetailDialog(
         minutes
     }
 
-    // Determine Title and Full Body
-    val (titlePart, bodyPart) = remember(note.title, note.content) {
-        if (note.title.isNotBlank()) {
-            Pair(note.title, note.content)
-        } else {
-            val lines = note.content.lines()
-            if (lines.size > 1 && lines[0].isNotBlank() && lines[0].length < 100) {
-                Pair(lines[0].trim(), lines.drop(1).joinToString("\n").trim())
-            } else {
-                Pair(null, note.content)
-            }
-        }
+    // Full note content
+    val bodyPart = remember(note.content) {
+        note.content.trim()
     }
 
     Dialog(
@@ -123,8 +114,7 @@ fun NoteDetailDialog(
                         IconButton(
                             onClick = {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val fullText = if (titlePart != null) "$titlePart\n\n$bodyPart" else bodyPart
-                                clipboard.setPrimaryClip(ClipData.newPlainText("Catatan Lish MyNote", fullText))
+                                clipboard.setPrimaryClip(ClipData.newPlainText("Catatan Lish MyNote", bodyPart))
                             },
                             modifier = Modifier.testTag("copy_note_detail")
                         ) {
@@ -134,8 +124,7 @@ fun NoteDetailDialog(
                             onClick = {
                                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                     type = "text/plain"
-                                    val fullText = if (titlePart != null) "$titlePart\n\n$bodyPart" else bodyPart
-                                    putExtra(Intent.EXTRA_TEXT, "$fullText\n\n[Lish MyNote]")
+                                    putExtra(Intent.EXTRA_TEXT, "$bodyPart\n\n[Lish MyNote]")
                                 }
                                 context.startActivity(Intent.createChooser(shareIntent, "Bagikan Catatan"))
                             },
@@ -278,17 +267,6 @@ fun NoteDetailDialog(
                     }
 
                     Spacer(modifier = Modifier.height(20.dp))
-
-                    // Optional Title if present
-                    if (titlePart != null) {
-                        Text(
-                            text = titlePart,
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(14.dp))
-                    }
 
                     // Content reading body with comfortable typography (Entire content displayed)
                     Text(

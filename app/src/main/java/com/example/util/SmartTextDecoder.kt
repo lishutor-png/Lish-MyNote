@@ -196,18 +196,18 @@ object SmartTextDecoder {
                 }
 
                 // Generic single note object {"title": "...", "content": "..."}
-                val note = parseSingleJsonNote(root)
+                val note = parseSingleJsonNote(root, passwordsToTry)
                 if (note != null) {
                     val words = countWords(note.content)
                     return DecodedResult(
                         success = true,
-                        description = "Catatan Tunggal JSON",
+                        description = if (note.isHidden) "Catatan Rahasia Terdeteksi (Brankas)" else "Catatan Tunggal JSON",
                         notes = listOf(note),
-                        categories = listOf(CategoryEntity(name = note.category, colorHex = "#2563EB", isDefault = false)),
+                        categories = listOf(CategoryEntity(name = note.category, colorHex = "#EC4899", isDefault = false)),
                         fullDocumentContent = note.content,
-                        fullDocumentTitle = note.title.ifBlank { note.content.lines().firstOrNull()?.take(60) ?: "Catatan" },
+                        fullDocumentTitle = note.title.ifBlank { note.content.lines().firstOrNull()?.take(60) ?: "Catatan Baru" },
                         rawTextPreview = note.content.take(300),
-                        detectedMethod = "Objek JSON",
+                        detectedMethod = if (note.isHidden) "Objek JSON Rahasia" else "Objek JSON",
                         totalCharacters = note.content.length,
                         totalWords = words
                     )
@@ -267,7 +267,7 @@ object SmartTextDecoder {
         }
     }
 
-    private fun parseSingleJsonNote(obj: JSONObject): NoteEntity? {
+    private fun parseSingleJsonNote(obj: JSONObject, passwordsToTry: List<String> = emptyList()): NoteEntity? {
         var content = when {
             obj.has("content") -> obj.optString("content")
             obj.has("isi") -> obj.optString("isi")
@@ -285,9 +285,28 @@ object SmartTextDecoder {
             else -> ""
         }
 
+        val category = obj.optString(
+            "category",
+            obj.optString(
+                "kategori",
+                obj.optString("folder", obj.optString("tag", "Umum"))
+            )
+        ).trim().ifBlank { "Umum" }
+
         // In-memory decryption if field-level encrypted with AES-256
         title = Aes256Crypt.decrypt(title.trim())
         content = Aes256Crypt.decrypt(content.trim())
+
+        // Also try passwords and category name if still encrypted
+        for (pwd in passwordsToTry + listOf(category, "hati", "LishMyNote")) {
+            if (pwd.isNotBlank()) {
+                val decTitle = Aes256Crypt.decryptWithPassword(title, pwd)
+                if (decTitle != null) title = decTitle
+
+                val decContent = Aes256Crypt.decryptWithPassword(content, pwd)
+                if (decContent != null) content = decContent
+            }
+        }
 
         val fullContent = when {
             title.isNotBlank() && content.isNotBlank() -> {
@@ -300,11 +319,17 @@ object SmartTextDecoder {
 
         if (fullContent.isBlank()) return null
 
-        val category = obj.optString("category", obj.optString("kategori", "Umum")).ifBlank { "Umum" }
         val now = System.currentTimeMillis()
         val createdAt = obj.optLong("createdAt", obj.optLong("created_at", now))
         val updatedAt = obj.optLong("updatedAt", obj.optLong("updated_at", now))
-        val isHidden = obj.optBoolean("isHidden", obj.optBoolean("is_hidden", false))
+        val isHidden = obj.optBoolean("isSecret", false) ||
+                obj.optBoolean("is_secret", false) ||
+                obj.optBoolean("isLocked", false) ||
+                obj.optBoolean("is_locked", false) ||
+                obj.optBoolean("secret", false) ||
+                obj.optBoolean("tersembunyi", false) ||
+                obj.optBoolean("isHidden", false) ||
+                obj.optBoolean("is_hidden", false)
 
         return NoteEntity(
             id = 0L,

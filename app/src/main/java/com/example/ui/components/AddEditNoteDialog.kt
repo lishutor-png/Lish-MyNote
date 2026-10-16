@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,8 @@ import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -28,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -53,14 +57,13 @@ fun AddEditNoteDialog(
     onDismiss: () -> Unit,
     onAddNewCategoryClick: () -> Unit
 ) {
-    var title by remember { mutableStateOf(initialNote?.title ?: "") }
     var content by remember { mutableStateOf(initialNote?.content ?: "") }
     var selectedCategory by remember {
         mutableStateOf(
             initialNote?.category ?: categories.firstOrNull()?.name ?: "Umum"
         )
     }
-    val isHidden = remember { initialNote?.isHidden ?: false }
+    var isHiddenState by remember { mutableStateOf(initialNote?.isHidden ?: false) }
 
     val currentTimestamp = remember {
         initialNote?.createdAt ?: System.currentTimeMillis()
@@ -70,12 +73,18 @@ fun AddEditNoteDialog(
         content.trim().split("\\s+".toRegex()).count { it.isNotBlank() }
     }
 
+    val dialogTitle = when {
+        initialNote != null && initialNote.id > 0 -> if (isHiddenState) "Edit Catatan Rahasia" else "Edit Catatan"
+        isHiddenState -> "Tambah Catatan Rahasia (Brankas)"
+        else -> "Tambah Catatan"
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Column {
                 Text(
-                    text = if (initialNote != null && initialNote.id > 0) "Edit Catatan" else "Tambah Catatan",
+                    text = dialogTitle,
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                 )
                 Spacer(modifier = Modifier.height(4.dp))
@@ -127,24 +136,6 @@ fun AddEditNoteDialog(
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
-
-                // Section: Judul Catatan (Opsional)
-                Text(
-                    text = "Judul Catatan (Opsional)",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    placeholder = { Text("Contoh: Rencana Proyek, Bab 1, dll.") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("note_title_input"),
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true
-                )
 
                 Spacer(modifier = Modifier.height(12.dp))
 
@@ -214,7 +205,7 @@ fun AddEditNoteDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     for (cat in categories) {
-                        val isSelected = selectedCategory == cat.name
+                        val isSelected = selectedCategory.equals(cat.name, ignoreCase = true)
                         val catColor = try {
                             Color(android.graphics.Color.parseColor(cat.colorHex))
                         } catch (e: Exception) {
@@ -242,14 +233,64 @@ fun AddEditNoteDialog(
                         )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Section: Secret Vault Toggle (Tersimpan di Brankas Tersembunyi)
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isHiddenState) {
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { isHiddenState = !isHiddenState }
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = if (isHiddenState) Icons.Default.Shield else Icons.Default.Visibility,
+                                contentDescription = null,
+                                tint = if (isHiddenState) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = if (isHiddenState) "Catatan Tersembunyi (Brankas)" else "Catatan Normal (Daftar Utama)",
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                                )
+                                Text(
+                                    text = if (isHiddenState) "Hanya dapat diakses melalui verifikasi brankas" else "Tampil di daftar utama catatan",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = isHiddenState,
+                            onCheckedChange = { isHiddenState = it }
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    onSave(title, content, selectedCategory, isHidden)
+                    onSave("", content, selectedCategory, isHiddenState)
                 },
-                enabled = content.isNotBlank() || title.isNotBlank(),
+                enabled = content.isNotBlank(),
                 modifier = Modifier.testTag("save_note_button")
             ) {
                 Text("Simpan")

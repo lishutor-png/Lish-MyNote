@@ -21,6 +21,8 @@ import androidx.fragment.app.FragmentActivity
 import com.example.ui.components.AddCategoryDialog
 import com.example.ui.components.AddEditNoteDialog
 import com.example.ui.components.FallbackPinDialog
+import com.example.ui.components.ManageCategoriesDialog
+import com.example.ui.components.MoveNoteCategoryDialog
 import com.example.ui.components.NoteDetailDialog
 import com.example.ui.screens.ExportImportScreen
 import com.example.ui.screens.HiddenVaultScreen
@@ -32,6 +34,7 @@ import com.example.ui.viewmodel.ThemeMode
 import com.example.util.BiometricHelper
 
 class MainActivity : FragmentActivity() {
+
     private val viewModel: NoteViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,13 +43,13 @@ class MainActivity : FragmentActivity() {
 
         setContent {
             val themeMode by viewModel.themeMode.collectAsState()
-            val isDark = when (themeMode) {
+            val useDarkTheme = when (themeMode) {
                 ThemeMode.LIGHT -> false
                 ThemeMode.DARK -> true
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
             }
 
-            MyApplicationTheme(darkTheme = isDark) {
+            MyApplicationTheme(darkTheme = useDarkTheme) {
                 LishMyNoteApp(
                     activity = this,
                     viewModel = viewModel
@@ -67,14 +70,20 @@ fun LishMyNoteApp(
     val hiddenNotes by viewModel.hiddenNotes.collectAsState()
     val categories by viewModel.categories.collectAsState()
     val categoryCounts by viewModel.categoryCounts.collectAsState()
+    val vaultCategoryCounts by viewModel.vaultCategoryCounts.collectAsState()
+    val totalCategoryCounts by viewModel.totalCategoryCounts.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
+    val vaultSelectedCategory by viewModel.vaultSelectedCategory.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val themeMode by viewModel.themeMode.collectAsState()
+    val expandAllNotes by viewModel.expandAllNotes.collectAsState()
 
     val showAddEditDialog by viewModel.showAddEditDialog.collectAsState()
     val editingNote by viewModel.editingNote.collectAsState()
     val viewingNote by viewModel.viewingNote.collectAsState()
     val showAddCategoryDialog by viewModel.showAddCategoryDialog.collectAsState()
+    val showManageCategoriesDialog by viewModel.showManageCategoriesDialog.collectAsState()
+    val movingCategoryNote by viewModel.movingCategoryNote.collectAsState()
     val showPinDialog by viewModel.showPinDialog.collectAsState()
     val userMessage by viewModel.userMessage.collectAsState()
 
@@ -126,6 +135,8 @@ fun LishMyNoteApp(
                         selectedCategory = selectedCategory,
                         searchQuery = searchQuery,
                         themeMode = themeMode,
+                        expandAll = expandAllNotes,
+                        onToggleExpandAll = { viewModel.toggleExpandAllNotes() },
                         onSelectThemeMode = { viewModel.setThemeMode(it) },
                         onCategorySelected = { viewModel.setSelectedCategory(it) },
                         onSearchQueryChanged = { viewModel.setSearchQuery(it) },
@@ -135,7 +146,9 @@ fun LishMyNoteApp(
                         onEditNoteClick = { viewModel.openEditNoteDialog(it) },
                         onToggleHiddenClick = { viewModel.toggleHiddenStatus(it) },
                         onDeleteNoteClick = { viewModel.deleteNote(it) },
+                        onMoveCategoryClick = { viewModel.openMoveCategoryDialog(it) },
                         onAddCategoryClick = { viewModel.openAddCategoryDialog() },
+                        onOpenManageCategories = { viewModel.openManageCategoriesDialog() },
                         onNavigateExportImport = { viewModel.navigateTo(AppScreen.EXPORT_IMPORT) }
                     )
                 }
@@ -144,12 +157,18 @@ fun LishMyNoteApp(
                     HiddenVaultScreen(
                         hiddenNotes = hiddenNotes,
                         categories = categories,
+                        selectedCategory = vaultSelectedCategory,
+                        categoryCounts = vaultCategoryCounts,
+                        expandAll = expandAllNotes,
+                        onToggleExpandAll = { viewModel.toggleExpandAllNotes() },
+                        onCategorySelected = { viewModel.setVaultSelectedCategory(it) },
                         onLockVault = { viewModel.lockVault() },
                         onAddHiddenNoteClick = { viewModel.openAddNoteDialog(preselectedHidden = true) },
                         onViewNoteClick = { viewModel.openViewingNote(it) },
                         onEditNoteClick = { viewModel.openEditNoteDialog(it) },
                         onToggleHiddenClick = { viewModel.toggleHiddenStatus(it) },
-                        onDeleteNoteClick = { viewModel.deleteNote(it) }
+                        onDeleteNoteClick = { viewModel.deleteNote(it) },
+                        onMoveCategoryClick = { viewModel.openMoveCategoryDialog(it) }
                     )
                 }
 
@@ -170,9 +189,9 @@ fun LishMyNoteApp(
                 }
             }
 
-            // Reader / Viewer Dialog for comfortable reading of notes and novel chapters
+            // Reader / Viewer Dialog for comfortable reading of notes
             viewingNote?.let { noteToView ->
-                val catColorHex = categories.find { it.name == noteToView.category }?.colorHex
+                val catColorHex = categories.find { it.name.equals(noteToView.category, ignoreCase = true) }?.colorHex
                 NoteDetailDialog(
                     note = noteToView,
                     categoryColorHex = catColorHex,
@@ -182,7 +201,7 @@ fun LishMyNoteApp(
                 )
             }
 
-            // Dialog: Add / Edit Note
+            // Dialog: Add / Edit Note (Identical rich form for normal and secret notes)
             if (showAddEditDialog) {
                 AddEditNoteDialog(
                     initialNote = editingNote,
@@ -201,6 +220,43 @@ fun LishMyNoteApp(
                     onDismiss = { viewModel.dismissAddCategoryDialog() },
                     onAdd = { name, colorHex ->
                         viewModel.addCategory(name, colorHex)
+                    }
+                )
+            }
+
+            // Dialog: Manage Categories (Move order, add, edit, delete, transfer notes)
+            if (showManageCategoriesDialog) {
+                ManageCategoriesDialog(
+                    categories = categories,
+                    categoryCounts = totalCategoryCounts,
+                    onDismiss = { viewModel.dismissManageCategoriesDialog() },
+                    onAddClick = { viewModel.openAddCategoryDialog() },
+                    onEditCategory = { cat, newName, newColor ->
+                        viewModel.editCategory(cat, newName, newColor)
+                    },
+                    onDeleteCategory = { cat ->
+                        viewModel.deleteCategory(cat)
+                    },
+                    onMoveUp = { cat ->
+                        viewModel.moveCategoryUp(cat)
+                    },
+                    onMoveDown = { cat ->
+                        viewModel.moveCategoryDown(cat)
+                    },
+                    onMoveAllNotes = { fromCat, toCat ->
+                        viewModel.moveAllNotesCategory(fromCat, toCat)
+                    }
+                )
+            }
+
+            // Dialog: Move Note Category
+            movingCategoryNote?.let { noteToMove ->
+                MoveNoteCategoryDialog(
+                    note = noteToMove,
+                    categories = categories,
+                    onDismiss = { viewModel.dismissMoveCategoryDialog() },
+                    onCategorySelected = { newCat ->
+                        viewModel.moveNoteToCategory(noteToMove, newCat)
                     }
                 )
             }

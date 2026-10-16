@@ -4,8 +4,10 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,9 +25,12 @@ import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -53,29 +58,36 @@ import androidx.compose.ui.unit.sp
 import com.example.data.model.NoteEntity
 import com.example.util.DateUtils
 
+/**
+ * Note Card with comprehensive content display (no cut-offs), AES-256 badge,
+ * category styling, time indicator, and options menu.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NoteItemCard(
     note: NoteEntity,
-    categoryColorHex: String?,
+    categoryColorHex: String? = null,
+    expandAll: Boolean = true,
     onNoteClick: () -> Unit,
     onEditClick: () -> Unit,
     onToggleHiddenClick: () -> Unit,
     onDeleteClick: () -> Unit,
+    onMoveCategoryClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
+    var isExpanded by remember(expandAll) { mutableStateOf(expandAll) }
 
     val categoryColor = remember(categoryColorHex) {
         if (!categoryColorHex.isNullOrBlank()) {
             try {
                 Color(android.graphics.Color.parseColor(categoryColorHex))
             } catch (e: Exception) {
-                Color(0xFF1D4ED8)
+                Color(0xFF2563EB)
             }
         } else {
-            Color(0xFF1D4ED8)
+            Color(0xFF2563EB)
         }
     }
 
@@ -83,24 +95,12 @@ fun NoteItemCard(
         note.content.trim().split("\\s+".toRegex()).count { it.isNotBlank() }
     }
 
-    val displayTitle = remember(note.title, note.content) {
-        if (note.title.isNotBlank()) {
-            note.title
-        } else {
-            val lines = note.content.trim().lines().filter { it.isNotBlank() }
-            if (lines.isNotEmpty()) {
-                lines[0].trim().removePrefix("## ").removePrefix("# ")
-            } else ""
-        }
+    val displayBody = remember(note.content) {
+        note.content.trim()
     }
 
-    val displayBody = remember(note.title, note.content) {
-        if (note.title.isNotBlank()) {
-            note.content.trim()
-        } else {
-            val lines = note.content.trim().lines().filter { it.isNotBlank() }
-            if (lines.size > 1) lines.drop(1).joinToString(" ") else ""
-        }
+    val isLongContent = remember(displayBody) {
+        displayBody.lines().size > 4 || displayBody.length > 180
     }
 
     Card(
@@ -110,7 +110,8 @@ fun NoteItemCard(
             .combinedClickable(
                 onClick = onNoteClick,
                 onLongClick = { showMenu = true }
-            ),
+            )
+            .animateContentSize(),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
@@ -123,7 +124,7 @@ fun NoteItemCard(
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            // Header Row: Category Badge, Word count & Timestamp & Menu
+            // Header Row: Category Badge, Secret Shield / AES-256 Lock Indicator, Word count & Timestamp & Menu
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -148,15 +149,41 @@ fun NoteItemCard(
                         )
                     }
 
-                    // AES-256 Lock Indicator
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = "Terenkripsi AES-256",
-                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                        modifier = Modifier.size(13.dp)
-                    )
+                    // Vault / AES-256 Lock Indicator
+                    if (note.isHidden) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Shield,
+                                    contentDescription = "Catatan Rahasia Brankas",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    text = "Rahasia",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = "Terenkripsi AES-256",
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
 
-                    if (wordCount > 60) {
+                    if (wordCount > 30) {
                         Text(
                             text = "$wordCount kata",
                             style = MaterialTheme.typography.labelSmall,
@@ -211,14 +238,29 @@ fun NoteItemCard(
                             )
 
                             DropdownMenuItem(
+                                text = { Text("Pindah Kategori") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(18.dp))
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onMoveCategoryClick()
+                                }
+                            )
+
+                            DropdownMenuItem(
                                 text = {
                                     Text(
-                                        if (note.isHidden) "Tampilkan di Daftar Utama"
-                                        else "Sembunyikan Catatan"
+                                        if (note.isHidden) "Pindah ke Daftar Utama"
+                                        else "Sembunyikan ke Brankas"
                                     )
                                 },
                                 leadingIcon = {
-                                    Icon(Icons.Default.VisibilityOff, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Icon(
+                                        imageVector = if (note.isHidden) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
                                 },
                                 onClick = {
                                     showMenu = false
@@ -227,15 +269,14 @@ fun NoteItemCard(
                             )
 
                             DropdownMenuItem(
-                                text = { Text("Salin Teks") },
+                                text = { Text("Salin Seluruh Teks") },
                                 leadingIcon = {
                                     Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
                                 },
                                 onClick = {
                                     showMenu = false
-                                    val full = if (note.title.isNotBlank()) "${note.title}\n\n${note.content}" else note.content
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    clipboard.setPrimaryClip(ClipData.newPlainText("Catatan Lish MyNote", full))
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("Catatan Lish MyNote", note.content))
                                 }
                             )
 
@@ -246,10 +287,9 @@ fun NoteItemCard(
                                 },
                                 onClick = {
                                     showMenu = false
-                                    val full = if (note.title.isNotBlank()) "${note.title}\n\n${note.content}" else note.content
                                     val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                         type = "text/plain"
-                                        putExtra(Intent.EXTRA_TEXT, full)
+                                        putExtra(Intent.EXTRA_TEXT, note.content)
                                     }
                                     context.startActivity(Intent.createChooser(shareIntent, "Bagikan Catatan"))
                                 }
@@ -272,32 +312,30 @@ fun NoteItemCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Title / Headline
-            if (displayTitle.isNotBlank()) {
-                Text(
-                    text = displayTitle,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        lineHeight = 22.sp
-                    ),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            // Body preview
+            // Body display (Whole text shown without cutting off when expanded)
             if (displayBody.isNotBlank()) {
-                Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = displayBody,
                     style = MaterialTheme.typography.bodyMedium.copy(
                         lineHeight = 21.sp
                     ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis
+                    maxLines = if (isExpanded) Int.MAX_VALUE else 3,
+                    overflow = if (isExpanded) TextOverflow.Clip else TextOverflow.Ellipsis
                 )
+
+                // Inline Expand / Collapse Toggle if content is long
+                if (isLongContent) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = if (isExpanded) "Sembunyikan Sebagian ▲" else "Tampilkan Selengkapnya (Semua) ▼",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clickable { isExpanded = !isExpanded }
+                            .padding(vertical = 3.dp)
+                    )
+                }
             }
         }
     }

@@ -9,8 +9,8 @@ data class BackupData(
     val version: Int = 1,
     val appName: String = "Lish MyNote",
     val exportedAt: Long = System.currentTimeMillis(),
-    val categories: List<CategoryEntity>,
-    val notes: List<NoteEntity>
+    val categories: List<CategoryEntity> = emptyList(),
+    val notes: List<NoteEntity> = emptyList()
 ) {
     fun toJsonString(): String {
         val root = JSONObject()
@@ -19,12 +19,12 @@ data class BackupData(
         root.put("exportedAt", exportedAt)
 
         val categoriesArray = JSONArray()
-        for (cat in categories) {
+        for (category in categories) {
             val catObj = JSONObject()
-            catObj.put("id", cat.id)
-            catObj.put("name", cat.name)
-            catObj.put("colorHex", cat.colorHex)
-            catObj.put("isDefault", cat.isDefault)
+            catObj.put("name", category.name)
+            catObj.put("colorHex", category.colorHex)
+            catObj.put("isDefault", category.isDefault)
+            catObj.put("displayOrder", category.displayOrder)
             categoriesArray.put(catObj)
         }
         root.put("categories", categoriesArray)
@@ -32,16 +32,14 @@ data class BackupData(
         val notesArray = JSONArray()
         for (note in notes) {
             val noteObj = JSONObject()
-            noteObj.put("id", note.id)
             noteObj.put("title", note.title)
             noteObj.put("content", note.content)
             noteObj.put("category", note.category)
             noteObj.put("createdAt", note.createdAt)
             noteObj.put("updatedAt", note.updatedAt)
             noteObj.put("isHidden", note.isHidden)
-            if (note.colorHex != null) {
-                noteObj.put("colorHex", note.colorHex)
-            }
+            noteObj.put("isSecret", note.isHidden)
+            note.colorHex?.let { noteObj.put("colorHex", it) }
             notesArray.put(noteObj)
         }
         root.put("notes", notesArray)
@@ -50,12 +48,12 @@ data class BackupData(
     }
 
     companion object {
-        fun detectFormatInfo(jsonString: String): String {
+        fun detectBackupFormat(rawContent: String): String {
             return try {
-                val trimmed = jsonString.trim()
+                val trimmed = rawContent.trim()
                 if (trimmed.startsWith("[")) {
-                    val arr = JSONArray(trimmed)
-                    "Format Cadangan Daftar Catatan (${arr.length()} catatan terdeteksi)"
+                    val array = JSONArray(trimmed)
+                    "Format Daftar Catatan JSON (${array.length()} catatan terdeteksi)"
                 } else if (trimmed.startsWith("{")) {
                     val root = JSONObject(trimmed)
                     if (root.has("notes")) {
@@ -111,11 +109,12 @@ data class BackupData(
                         if (obj != null) {
                             val name = obj.optString("name", obj.optString("nama", "")).trim()
                             if (name.isNotBlank()) {
-                                categoriesMap[name] = CategoryEntity(
+                                categoriesMap[name.lowercase()] = CategoryEntity(
                                     id = 0L,
                                     name = name,
                                     colorHex = obj.optString("colorHex", obj.optString("color", "#2563EB")),
-                                    isDefault = obj.optBoolean("isDefault", false)
+                                    isDefault = obj.optBoolean("isDefault", false),
+                                    displayOrder = obj.optInt("displayOrder", i)
                                 )
                             }
                         }
@@ -146,11 +145,12 @@ data class BackupData(
 
             // Ensure every note's category exists in categoriesMap
             for (note in notesList) {
-                if (note.category.isNotBlank() && !categoriesMap.containsKey(note.category)) {
-                    categoriesMap[note.category] = CategoryEntity(
+                val catKey = note.category.trim().lowercase()
+                if (note.category.isNotBlank() && !categoriesMap.containsKey(catKey)) {
+                    categoriesMap[catKey] = CategoryEntity(
                         id = 0L,
                         name = note.category,
-                        colorHex = note.colorHex ?: "#2563EB",
+                        colorHex = note.colorHex ?: "#EC4899",
                         isDefault = false
                     )
                 }
@@ -172,7 +172,7 @@ data class BackupData(
         ) {
             when (rawItem) {
                 is JSONObject -> {
-                    // Extract title and body
+                    // Extract title and body (safely ignoring empty string keys like "")
                     var rawTitle = rawItem.optString("title", rawItem.optString("judul", "")).trim()
                     var rawBody = rawItem.optString(
                         "content",
@@ -229,14 +229,15 @@ data class BackupData(
                         rawItem.opt("updatedAt") ?: rawItem.opt("updated_at") ?: createdAt
                     )
 
-                    // Extract hidden flag
-                    val isHidden = rawItem.optBoolean(
-                        "isHidden",
-                        rawItem.optBoolean(
-                            "is_hidden",
-                            rawItem.optBoolean("secret", rawItem.optBoolean("tersembunyi", false))
-                        )
-                    )
+                    // Extract secret / hidden flag (isSecret: true, is_secret: true, isLocked: true, isHidden: true)
+                    val isHidden = rawItem.optBoolean("isSecret", false) ||
+                            rawItem.optBoolean("is_secret", false) ||
+                            rawItem.optBoolean("isLocked", false) ||
+                            rawItem.optBoolean("is_locked", false) ||
+                            rawItem.optBoolean("secret", false) ||
+                            rawItem.optBoolean("tersembunyi", false) ||
+                            rawItem.optBoolean("isHidden", false) ||
+                            rawItem.optBoolean("is_hidden", false)
 
                     val colorHex = if (rawItem.has("colorHex")) rawItem.optString("colorHex")
                     else if (rawItem.has("color")) rawItem.optString("color")
@@ -259,12 +260,10 @@ data class BackupData(
                     var str = rawItem.trim()
                     str = Aes256Crypt.decrypt(str)
                     if (str.isNotBlank()) {
-                        val firstLine = str.lines().firstOrNull()?.trim() ?: ""
-                        val title = if (firstLine.length < 80 && str.lines().size > 1) firstLine else ""
                         notesList.add(
                             NoteEntity(
                                 id = 0L,
-                                title = title,
+                                title = "",
                                 content = str,
                                 category = "Umum",
                                 createdAt = System.currentTimeMillis(),
